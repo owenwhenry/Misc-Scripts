@@ -1,0 +1,93 @@
+
+###This is a script I used to pull data out of my email
+###Fundamental parts are connecting to my inbox using inbuilt Microsoft API's and doing some work based on time
+
+
+import win32com.client
+import datetime
+import time
+import schedule
+import re
+import os
+
+
+outlook = win32com.client.Dispatch("Outlook.Application")
+mapi = outlook.GetNamespace("MAPI")
+now_file = ''
+
+def get_file():
+    now = datetime.datetime.now()
+
+
+    inbox_sync = mapi.Folders[0].Folders[1].Folders[2]
+
+    messages = inbox_sync.Items
+
+    print('\n')
+    if now.day < 10:
+        datetarget = str(now.year) + str(now.month) + str(0) + str(now.day)
+    else:
+        datetarget = str(now.year) + str(now.month) + str(now.day)
+    
+    print('Looking for file for %s' %datetarget)
+
+    date_regex = re.compile('.*%s.*' %datetarget)
+
+    for item in messages:
+        match = re.match(date_regex, str(item))
+        if match:
+            now_file = item
+
+    if not match:
+        print('File not found!')
+        send_error_message('Log file not found')
+        
+        
+    for att in now_file.attachments:
+        att.SaveAsFile(os.getcwd() + '\\now_file.txt')
+        print(os.getcwd())
+        
+
+def send_error_message(error):
+    mail = outlook.CreateItem(0)
+    mail.To = 'owen.henry@crs.org;'
+    mail.Subject = 'ERROR: EA Sync'
+    mail.body = 'This is a test for the EA sync QC. The error is: %s' %error
+    
+    mail.Send()
+    
+def process_file():
+    intermediate_error = re.compile('.*Intermediate error - PROCESS NOT COMPLETE..*')
+    fatal_error = re.compile('.*Process failed!!!.*')
+    
+    with open('now_file.txt', 'r') as log:
+        read_data = log.read()
+        #print(read_data)
+        match_1 = re.search(intermediate_error, read_data)
+        match_2 = re.search(fatal_error, read_data)
+        if match_1:
+            print('Intermediate error')
+            send_error_message('Sync incomplete')
+        elif match_2:
+            print('fatal error')
+            send_error_message('fatal error')
+
+
+def quality_check():
+    print('Running sync QC job...')
+    get_file()
+    process_file()
+
+def keep_alive():
+    now = datetime.datetime.now()
+    print('Hey, it\'s %s, just letting you know I\'m alive!' %now)
+    
+schedule.every().day.at('07:00').do(quality_check)
+schedule.every().hour.do(keep_alive)
+
+keep_alive()
+
+while True:
+    schedule.run_pending()
+    time.sleep(60)
+    
